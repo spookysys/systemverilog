@@ -12,11 +12,10 @@ before_script:
   - ./gradlew installDist
   - ./gradlew installSlimDist
 script: 
-  - cd tests
-  - RUNNER=../build/install/svparse-slim/bin/svparse
-  - ./runtests.py $RUNNER parsertests/* --verbose
-  - ./runtests.py $RUNNER lexertests/* --verbose
-  - ./runtests.py $RUNNER regressiontests/* --verbose
-  - ./runtests.py $RUNNER failsonwindows/* --verbose
-  - ./runtests.py $RUNNER negative_tests/* --should fail --verbose
-  - ./runtests.py $RUNNER knownfailures/* --should fail --verbose
+  - RUNNER=build/install/svparse-slim/bin/svparse
+  - tests/runtests.py $RUNNER tests/parsertests/* --verbose
+  - tests/runtests.py $RUNNER tests/lexertests/* --verbose
+  - tests/runtests.py $RUNNER tests/regressiontests/* --verbose
+  - tests/runtests.py $RUNNER tests/failsonwindows/* --verbose
+  - tests/runtests.py $RUNNER tests/negative_tests/* --should fail --verbose
+  - tests/runtests.py $RUNNER tests/knownfailures/* --should fail --verbose

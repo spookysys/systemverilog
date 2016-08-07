@@ -7,7 +7,7 @@ bin/
 svparse_files.yml
 
 # Visual Studio Code
-.vscode/*.VC.db
+.vscode/.*
 
 # Eclipse
 .cache-main

@@ -27,11 +27,15 @@ import subprocess
 package = "com.github.svstuff.systemverilog.generated"
 javaDir = os.path.join("src/main/java", package.replace('.', '/'))
 scalaDir = os.path.join("src/main/scala", package.replace('.', '/'))
+genDir = os.path.dirname(os.path.abspath(__file__))
+g4Path = os.path.join(genDir, "SVParser.g4")
 
 if not os.path.isdir(javaDir):
     raise Exception("Directory for generated java sources does not exist")
 if not os.path.isdir(scalaDir):
     raise Exception("Directory for generated scala sources does not exist")
+if not os.path.isfile(g4Path):
+    raise Exception("Could not locate ANTLR input file")
 
 # NOTE: running this script will overwrite the following files:
 antlrLexerTokens = os.path.join(javaDir, "SVLexer.tokens")
@@ -250,8 +254,7 @@ def regen():
         f.write("}\n")
 
     # run ANTLR on the grammar
-    subprocess.check_call(
-        "java -Xmx2g -jar lib/antlr-4.4-complete.jar -atn -visitor -o {} SVParser.g4".format(javaDir), shell=True)
+    subprocess.check_call("java -Xmx2g -jar lib/antlr-4.4-complete.jar -atn -visitor -o {} {}".format(javaDir, g4Path), shell=True)
 
 if __name__ == "__main__":
     regen()

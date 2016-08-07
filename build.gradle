@@ -41,12 +41,12 @@ task wrapper(type: Wrapper) {
 
 task antlr(type: Exec) {
     workingDir = "${projectDir}"
-    executable = './regen.py'
+    executable = './src/parsergen/regen.py'
     if (Os.isFamily(Os.FAMILY_WINDOWS)) {
         executable = 'python'
-        args = ['regen.py']
+        args = ['src/parsergen/regen.py']
     }
-    inputs.files files('regen.py', 'SVParser.g4')
+    inputs.files files('src/parsergen/regen.py', 'src/parsergen/SVParser.g4')
     outputs.files files {
         file("src/main/java/com/github/svstuff/systemverilog/generated").listFiles() +
         file("src/main/scala/com/github/svstuff/systemverilog/generated").listFiles()
