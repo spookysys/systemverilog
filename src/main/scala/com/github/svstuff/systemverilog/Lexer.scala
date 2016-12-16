@@ -52,14 +52,12 @@ import io.Source
 import java.util.concurrent.BlockingQueue
 import java.io.File
 import org.antlr.v4.runtime.Token
-
 import generated._
-
 import java.nio.charset.CodingErrorAction
 import scala.io.Codec
 
 
-sealed class Lexer(
+class Lexer extends Runnable (
   tokens : BlockingQueue[SVToken],
   incdirs : Seq[String],
   printTokens : Boolean,

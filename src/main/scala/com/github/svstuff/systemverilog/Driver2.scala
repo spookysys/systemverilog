@@ -14,114 +14,34 @@ import java.io.PrintWriter
 
 import generated._
 
-object OldieDriver {
+object Driver2 {
+  
+  // knobs
+  val tokenQueueLength = 1000
 
-  val version = "0.1"
-
-  def oldieMain( args: Array[String] ) {
-    // Install default exception handler
-    Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler {
-      override def uncaughtException(t: Thread, e: Throwable){
-        e.printStackTrace()
-        sys.exit(1)
-      }
-    })
-
-    // parse arguments
-    try {
-      parse(args(0))
-    } catch {
-      case e: LexerError => // swallow lexer errors, since these have already been reported.
-    }
-  }
-  def getLogger( logLevel: String ) : org.slf4j.Logger = {
-    // Set the default log level and formatting before any loggers are created.
-    if ( logLevel == "" ) {
-      System.setProperty(org.slf4j.impl.SimpleLogger.DEFAULT_LOG_LEVEL_KEY, "DEBUG")
-    } else {
-      System.setProperty(org.slf4j.impl.SimpleLogger.DEFAULT_LOG_LEVEL_KEY, logLevel)
-    }
+  // Options
+  class Options (
+      val sources : collection.immutable.Seq[String],
+      val incDirs : collection.immutable.Seq[String],
+      val defines : collection.immutable.Map[String, Option[String]],
+      val output : Option[String],
+      val analyzeComplexity : Option[String],
+      val dumpTokens : Option[String],
+      val dumpParseTree : Option[String],
+      val lexOnly : Boolean,
+      val logLevel : String
+  )
+  
+  def drive(opts : Options) {
+    
+    // Set the default log level and formatting
+    System.setProperty(org.slf4j.impl.SimpleLogger.DEFAULT_LOG_LEVEL_KEY, opts.logLevel)
     System.setProperty(org.slf4j.impl.SimpleLogger.SHOW_THREAD_NAME_KEY, "FALSE")
     System.setProperty(org.slf4j.impl.SimpleLogger.SHOW_SHORT_LOG_NAME_KEY, "TRUE")
-    org.slf4j.LoggerFactory.getLogger("Driver")
-  }
-  def toAbsolutePaths( prefix: String, paths: List[String] ) : List[String] = {
-    paths.map( (path) => {
-      if ( path(0) == '/' ) {
-        path
-      } else{
-        "%s/%s".format(prefix, path)
-      }
-    })
-  }
-  def createVisitors(parser: Parser, features: List[String]) : List[SVVisitor] = {
-    val visitors = new collection.mutable.ListBuffer[SVVisitor]
-    if ( features.contains("block_style") ){
-      visitors += new BlockStyleVisitor()
-    }
-    if ( features.contains("complexity") ){
-      visitors += new ComplexityVisitor(parser, new PrintWriter("svparse.yml"))
-    }
-    if ( features.contains("serialize_to_xml") ){
-      val fstream = new java.io.FileOutputStream("svparsetree.gz")
-      val gzstream = new java.util.zip.GZIPOutputStream(fstream)
-      visitors += new SerializerVisitor(parser, gzstream)
-    }
-    visitors.toList
-  }
-  def parse( projectPath: String ) {
-    println("SVPARSE version %s.\nReading project file: %s".format(version, projectPath))
-
-    val extra = util.Properties.envOrNone("SVPARSE_EXTRA") match {
-      case Some(extraPath) => {
-        println(s"Loading extra parameters from ${extraPath}")
-        xml.XML.loadFile(extraPath)
-      }
-      case None => <root/>
-    }
-    val extraFeatures = (extra \\ "feature").toList.map(_.text)
-    val extraDebugOptions = (extra \\ "debug").toList.map(_.text)
-    val extraLogLevel = (extra \ "logLevel").text
-
-    val project = xml.XML.loadFile(projectPath)
-
-    val logger =
-      if ( extraLogLevel.isEmpty ) {
-        getLogger((project \ "logLevel").text)
-      } else {
-        println(s"Overriding project log level to ${extraLogLevel}")
-        getLogger(extraLogLevel)
-      }
-
-    // NOTE: from this point on use the logger for output
-
-    val projectFeatures = (project \\ "feature").toList.map(_.text)
-    val features = extraFeatures ++ projectFeatures
-    val projectDebugOptions = (project \\ "debug").toList.map(_.text)
-    val debugOptions = extraDebugOptions ++ projectDebugOptions
-
-    val addProjectDirToIncdirs = debugOptions.contains("add_project_dir_to_incdirs")
-    val lexerOnly = debugOptions.contains("lexer_only")
-    val skipTokenEnqueue = lexerOnly
-    val printTokens = debugOptions.contains("print_tokens")
-    val detectAmbiguations = debugOptions.contains("detect_ambiguations")
-
-    // get the directory of the project file and prefix this on all _relative_ file paths
-    val dirpre = new File(new File(projectPath).getAbsolutePath()).getParentFile().toString
-
-    val incdirsRaw = collection.mutable.ListBuffer.empty[String]
-    if ( addProjectDirToIncdirs ) {
-      incdirsRaw += dirpre
-    }
-    incdirsRaw ++= (project \\ "incdir").map(_.text)
-
-    val incdirs = toAbsolutePaths(dirpre, incdirsRaw.toList)
-    val sources = toAbsolutePaths(dirpre, (project \\ "source").map( _.text ).toList)
-    val defines = (project \\ "define").map( d => ( (d \ "name").text -> (d \ "value").text ) ).toMap
-
-    val tokenQueueCapacity = 1000
-    val tokens = new ArrayBlockingQueue[SVToken](tokenQueueCapacity)
-
+    
+    // Get logger
+    val logger = org.slf4j.LoggerFactory.getLogger("Driver")
+    
     /*
     The below is quite ugly, and should probably be redesigned. I'm concerned that using actors
     with very fine grained messages (tokens) will be too slow, hence the following pattern instead.
@@ -133,23 +53,22 @@ object OldieDriver {
     An error in the parser must explicitly stop the lexer thread, since otherwise the lexer will just
     fill up the blocking queue and sit and wait for the parser to consume a token.
     */
+    
+    
+    // Create lexer and parser, connected by queue
+    var tokenQueue = new TokenQueue(tokenQueueLength)
+    var lexer = new Lexer2(tokenQueue)
+    var parser = new Parser2(tokenQueue)
+    
+    // Create threads
+    var lexerThread = new Thread(lexer)
+    var parserThread = new Thread(parser)
 
-    var lexerThread : Thread = null
-    var parserThread : Thread = null
 
-    parserThread = new Thread(new Runnable {
-      override def run() {
-        try {
-          runParser()
-        } catch {
-          case e: InterruptedException =>  // do nothing, we've been told to stop
-          case e: ParseCancellationException =>  // do nothing, we've been told to stop
-        }finally{
-          lexerThread.interrupt()
-        }
-      }
+    
+    new Runnable {
       def runParser() {
-        val lexerWrapper = new WrappedLexer(tokens)
+
         val tokenStream = new UnbufferedTokenStream(lexerWrapper)
         val parser = new generated.SVParser(tokenStream)
 
@@ -289,8 +208,40 @@ object OldieDriver {
     if ( !lexerOnly ){
       parserThread.start()
     }
+    
   }
 
+  
+  
+  
+  
+  def toAbsolutePaths( prefix: String, paths: List[String] ) : List[String] = {
+    paths.map( (path) => {
+      if ( path(0) == '/' ) {
+        path
+      } else{
+        "%s/%s".format(prefix, path)
+      }
+    })
+  }
+  
+  
+  def createVisitors(parser: Parser, features: List[String]) : List[SVVisitor] = {
+    val visitors = new collection.mutable.ListBuffer[SVVisitor]
+    if ( features.contains("block_style") ){
+      visitors += new BlockStyleVisitor()
+    }
+    if ( features.contains("complexity") ){
+      visitors += new ComplexityVisitor(parser, new PrintWriter("svparse.yml"))
+    }
+    if ( features.contains("serialize_to_xml") ){
+      val fstream = new java.io.FileOutputStream("svparsetree.gz")
+      val gzstream = new java.util.zip.GZIPOutputStream(fstream)
+      visitors += new SerializerVisitor(parser, gzstream)
+    }
+    visitors.toList
+  }
+  
   def printContextChain(sb:StringBuilder, ctx:Context, line:Int, col:Int){
     sb ++= "In: %s(%d,%d)\n".format(ctx.where(), line, col)
     val what = ctx.what()
